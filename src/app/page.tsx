@@ -10,6 +10,7 @@ type CardComponent = {
   type: "Card";
   props: {
     title: string;
+    content: string;
   };
 };
 
@@ -27,37 +28,80 @@ type UIPlan = {
   components: ComponentPlan[];
 };
 
-/* ---------- COMPONENT ---------- */
+type Version = {
+  plan: UIPlan;
+  code: string;
+  timestamp: number;
+};
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
-  const [code, setCode] = useState("");
-  const [plan, setPlan] = useState<UIPlan | null>(null);
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   async function handleGenerate() {
-    console.log("Button clicked");
+    if (!prompt.trim()) return;
 
-    const res = await fetch("/api/agent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ prompt }),
-    });
+    setIsGenerating(true);
 
-    const data = await res.json();
-    setCode(data.code);
-    setPlan(data.plan);
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+
+      const data = await res.json();
+
+      const newVersion: Version = {
+        plan: data.plan,
+        code: data.code,
+        timestamp: Date.now(),
+      };
+
+      setVersions((prev) => [newVersion, ...prev]);
+      setActiveIndex(0);
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
+  const activeVersion =
+    activeIndex !== null ? versions[activeIndex] : null;
+
   return (
-    <div className="flex h-screen">
-      {/* Left Panel */}
-      <div className="w-1/3 border-r p-4">
-        <h1 className="text-xl font-bold mb-4">AI Chat</h1>
+    <div className="flex h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300">
+
+      {/* LEFT PANEL */}
+      <div className="w-1/3 bg-white shadow-2xl p-10 flex flex-col">
+        <h1 className="text-2xl font-bold text-black mb-2">
+          AI Chat
+        </h1>
+        <p className="text-gray-500 text-sm mb-6">
+          Describe the UI you want to generate.
+        </p>
+
+        {/* Preset Prompts */}
+        <div className="text-black flex gap-2 mb-4 flex-wrap">
+          {[
+            "Landing page hero with CTA button",
+            "Pricing section with 3 cards",
+            "Login form with email and password",
+            "Dashboard with stats cards",
+          ].map((preset) => (
+            <button
+              key={preset}
+              onClick={() => setPrompt(preset)}
+              className="px-3 py-1 bg-blue-200 hover:bg-gray-300 rounded-full text-sm"
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
 
         <textarea
-          className="w-full border p-2 rounded"
+          className="w-full border border-gray-300 text-black focus:border-black focus:ring-1 focus:ring-black transition-all p-3 rounded-lg shadow-sm resize-none h-32"
           placeholder="Describe your UI..."
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -65,44 +109,101 @@ export default function Home() {
 
         <button
           onClick={handleGenerate}
-          className="mt-4 px-4 py-2 bg-black text-white rounded"
+          disabled={isGenerating}
+          className={`mt-6 px-6 py-3 rounded-2xl font-semibold transition-all duration-200 ${
+            isGenerating
+              ? "bg-gray-400 cursor-not-allowed"
+              : "bg-gradient-to-r from-black to-gray-800 text-white hover:shadow-xl hover:-translate-y-1 active:translate-y-0"
+          }`}
         >
-          Generate
+          {isGenerating ? "Generating UI..." : "Generate"}
         </button>
+
+        {isGenerating && (
+          <p className="text-sm text-gray-500 mt-2">
+            AI is designing your interface...
+          </p>
+        )}
       </div>
 
-      {/* Right Panel */}
-      <div className="w-2/3 p-4">
-        <h1 className="text-xl font-bold mb-4">Generated Code</h1>
+      {/* RIGHT PANEL */}
+      <div className="w-2/3 p-10 space-y-8">
 
-        <pre className="bg-gray-100 text-black p-4 rounded h-1/2 overflow-auto whitespace-pre-wrap">
-          {code}
-        </pre>
+        {/* Generated Code */}
+        <div>
+          <h1 className="text-2xl font-bold text-black mb-4">
+            Generated Code
+          </h1>
 
-        <h1 className="text-xl font-bold mt-6 mb-4">Live Preview</h1>
+          <pre className="bg-white text-green-400 p-6 rounded-xl shadow-lg h-64 overflow-auto text-sm font-mono whitespace-pre-wrap">
+            {activeVersion?.code}
+          </pre>
+        </div>
 
-        <div className="border p-4 rounded h-1/2 overflow-auto space-y-4">
-          {plan &&
-            plan.components.map((component, index) => {
-              if (component.type === "Card") {
-                return (
-                  <Card key={index} title={component.props.title}>
-                    <p>This UI was generated.</p>
-                  </Card>
-                );
-              }
+        {/* Live Preview */}
+        <div>
+          <h1 className="text-2xl font-bold text-black mb-4">
+            Live Preview
+          </h1>
 
-              if (component.type === "Button") {
-                return (
-                  <Button
-                    key={index}
-                    label={component.props.label}
-                  />
-                );
-              }
+          {/* Version Selector */}
+          {versions.length > 0 && (
+            <div className="flex gap-2 mb-6 flex-wrap">
+              {versions.map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => setActiveIndex(index)}
+                  className={`px-4 py-1 rounded-full text-sm ${
+                    index === activeIndex
+                      ? "bg-black text-white"
+                      : "bg-gray-300 text-black"
+                  }`}
+                >
+                  Version {versions.length - index}
+                </button>
+              ))}
+            </div>
+          )}
 
-              return null;
-            })}
+          {/* Empty State */}
+          {!activeVersion && (
+            <div className="text-gray-400 text-center mt-20">
+              <p className="text-lg">No UI generated yet</p>
+              <p className="text-sm">
+                Describe something and click Generate
+              </p>
+            </div>
+          )}
+
+          {/* Glow Wrapper */}
+          {activeVersion && (
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-400 to-blue-400 blur-3xl opacity-10 rounded-2xl" />
+              <div className="relative bg-white rounded-2xl shadow-xl p-8 space-y-6">
+
+                {activeVersion.plan.components.map((component, index) => {
+                  if (component.type === "Card") {
+                    return (
+                      <Card key={index} title={component.props.title}>
+                        <p>{component.props.content}</p>
+                      </Card>
+                    );
+                  }
+
+                  if (component.type === "Button") {
+                    return (
+                      <Button
+                        key={index}
+                        label={component.props.label}
+                      />
+                    );
+                  }
+
+                  return null;
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
