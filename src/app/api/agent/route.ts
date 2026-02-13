@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
-
+import Groq from "groq-sdk";
 /* ---------------- TYPES ---------------- */
 
 type CardComponent = {
@@ -27,10 +26,9 @@ const COMPONENT_WHITELIST = ["Card", "Button"] as const;
 
 /* ---------------- AI INIT ---------------- */
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
 });
-
 /* ---------------- VALIDATION ---------------- */
 
 function validatePlan(plan: unknown): plan is UIPlan {
@@ -132,16 +130,18 @@ ${userPrompt}
 `;
   }
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: plannerPrompt,
-    config: {
-      responseMimeType: "application/json",
+const completion = await groq.chat.completions.create({
+  model: "llama-3.3-70b-versatile",
+  messages: [
+    {
+      role: "user",
+      content: plannerPrompt,
     },
-  });
+  ],
+  temperature: 0,
+});
 
-  const rawText = response.text;
-
+const rawText = completion.choices[0]?.message?.content;
   if (!rawText) {
     throw new Error("Planner returned empty response.");
   }
@@ -204,14 +204,21 @@ UI Plan:
 ${JSON.stringify(plan, null, 2)}
 `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: explainerPrompt,
-  });
+const completion = await groq.chat.completions.create({
+  model: "llama-3.3-70b-versatile",
+  messages: [
+    {
+      role: "user",
+      content: explainerPrompt,
+    },
+  ],
+});
 
-  return response.text ?? "No explanation generated.";
+return (
+  completion.choices[0]?.message?.content ??
+  "No explanation generated."
+);
 }
-
 /* ---------------- MAIN ROUTE ---------------- */
 
 export async function POST(req: Request) {
