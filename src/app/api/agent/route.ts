@@ -66,15 +66,46 @@ function validatePlan(plan: unknown): plan is UIPlan {
 
 /* ---------------- 1️⃣ PLANNER ---------------- */
 
-async function runPlanner(userPrompt: string): Promise<UIPlan> {
-  const plannerPrompt = `
-You are a UI Planner.
+async function runPlanner(
+  userPrompt: string,
+  previousPlan?: UIPlan | null
+): Promise<UIPlan> {
+  let plannerPrompt = "";
+
+  if (previousPlan) {
+    plannerPrompt = `
+You are updating an existing UI plan.
+
+STRICT RULES:
+- Preserve existing components unless removal is explicitly requested.
+- Modify only what is necessary.
+- Do NOT redesign everything.
+- Only use allowed components: ${COMPONENT_WHITELIST.join(", ")}
+
+Return ONLY valid JSON.
+No markdown.
+No explanation.
+No backticks.
+
+Previous Plan:
+${JSON.stringify(previousPlan, null, 2)}
+
+User Modification Request:
+${userPrompt}
+
+Return the FULL updated plan.
+`;
+  } else {
+    plannerPrompt = `
+You are a strict UI Planner.
 
 Select components ONLY from:
 ${COMPONENT_WHITELIST.join(", ")}
 
 Return ONLY valid JSON.
-No markdown. No explanation.
+No markdown.
+No explanation.
+No backticks.
 
 Format:
 {
@@ -99,6 +130,7 @@ Format:
 User request:
 ${userPrompt}
 `;
+  }
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
@@ -109,7 +141,6 @@ ${userPrompt}
   });
 
   const rawText = response.text;
-  console.log("PLANNER RAW RESPONSE:", rawText);
 
   if (!rawText) {
     throw new Error("Planner returned empty response.");
@@ -118,19 +149,19 @@ ${userPrompt}
   let parsed: unknown;
 
   try {
-    parsed = console.log("PLANNER RAW:", rawText);
-JSON.parse(rawText);
-  } catch {
+    parsed = JSON.parse(rawText);
+  } catch (err) {
+    console.error("JSON PARSE ERROR:", err);
     throw new Error("Planner returned malformed JSON.");
   }
 
   if (!validatePlan(parsed)) {
+    console.error("VALIDATION FAILED:", parsed);
     throw new Error("Planner returned invalid structure.");
   }
 
   return parsed;
 }
-
 
 /* ---------------- 2️⃣ GENERATOR ---------------- */
 
@@ -169,7 +200,7 @@ Explain:
 - Why these components were selected
 - How the props match the user request
 
-Plan:
+UI Plan:
 ${JSON.stringify(plan, null, 2)}
 `;
 
@@ -187,6 +218,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const userPrompt: string = body.prompt;
+    const previousPlan: UIPlan | null = body.previousPlan ?? null;
 
     if (!userPrompt) {
       return NextResponse.json(
@@ -195,15 +227,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const plan = await runPlanner(userPrompt);
+    const plan = await runPlanner(userPrompt, previousPlan);
     const code = runGenerator(plan);
-   // const explanation = await runExplainer(plan);
-   //const explanation = "Explainer disabled during development.";
-let explanation = "Development mode";
-
-if (process.env.NODE_ENV === "production") {
-  explanation = await runExplainer(plan);
-}
+    const explanation = await runExplainer(plan);
 
     return NextResponse.json({
       plan,
